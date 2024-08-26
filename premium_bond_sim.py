@@ -18,40 +18,31 @@ import pickle
 import numpy as np
 
 PRIZE_MATRIX = {
-    0: 5_931_717,  # Sum of prizes per draw
-    25: 1_475_218,
-    50: 2_190_094,
-    100: 2_190_094,
-    500: 54_807,
-    1_000: 18_269,
-    5_000: 1_747,
-    10_000: 874,
-    25_000: 350,
-    50_000: 175,
-    100_000: 87,
-    1_000_000: 2
+    25: 1_475_218, 50: 2_190_094, 100: 2_190_094, 500: 54_807,
+    1_000: 18_269, 5_000: 1_747, 10_000: 874, 25_000: 350,
+    50_000: 175, 100_000: 87, 1_000_000: 2
     }
 
-PRIZE_VALUES = list(PRIZE_MATRIX.keys())[1:]
-PRIZE_COUNTS = list(PRIZE_MATRIX.values())[1:]
-PRIZES = np.repeat(PRIZE_VALUES, PRIZE_COUNTS)
+PRIZES: np.ndarray = np.repeat(
+    tuple(PRIZE_MATRIX.keys()), tuple(PRIZE_MATRIX.values())
+    ).astype(np.int32)
 
 WINNING_ODDS = 21_000
-WIN_CHOICES = np.arange(WINNING_ODDS)
+WIN_CHOICES: np.ndarray = np.arange(WINNING_ODDS).astype(np.int16)
 
 BONDS_VALUE = 100_000
 
-SIM_START = 0_000
+SIM_START = 00_000
 SIM_END = SIM_START + 50_000
 
-RNG: np.random._generator.Generator = np.random.default_rng()
+RNG: np.random.Generator = np.random.default_rng()
 
 
-def prizeDraw(bondsValue: int) -> list[(int, int)]:
+def prize_draw(bonds_value: int) -> list[tuple[int, int]]:
     """ Simulate single prize draw  with bondsValue bonds
         returns list of winning (bond, prize) """
     # Check each bond for winning condition (value = 0)
-    outcomes: np.ndarray = RNG.choice(WIN_CHOICES, size=bondsValue)
+    outcomes: np.ndarray = RNG.choice(WIN_CHOICES, size=bonds_value)
     winners: np.ndarray = np.where(outcomes == 0)[0]
 
     # randomly sample prizes (without replacement) each winner
@@ -60,21 +51,23 @@ def prizeDraw(bondsValue: int) -> list[(int, int)]:
     return list(zip(winners, prizes))
 
 
-def annualPrizes(bondsValue: int) -> list[(int, int)]:
+def annual_prizes(bonds_value: int) -> list[tuple[int, int]]:
+    """ Simulate prizes over a year """
     winnings = []
 
-    for month in range(12):
-        winnings.extend(prizeDraw(bondsValue))
+    for _ in range(12):
+        winnings.extend(prize_draw(bonds_value))
     return winnings
 
 
-def setDataMatrix(sim: int) -> list[(int, int)]:
-    return annualPrizes(BONDS_VALUE)
+def set_data_matrix(sim: int) -> list[tuple[int, int]]:
+    """ Wrapper function for parallel processing """
+    return annual_prizes(BONDS_VALUE)
 
 
 pool = Pool(processes=6)
 startTime = perf_counter()
-dataMatrix = pool.map(setDataMatrix, range(SIM_START, SIM_END))
+dataMatrix = pool.map(set_data_matrix, range(SIM_START, SIM_END))
 endTime = perf_counter()
 print(f"Completed in {endTime - startTime:0.4f} s")
 
