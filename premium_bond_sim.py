@@ -14,8 +14,8 @@ Uses multiprocessing and numpy random functions for optimal efficiency
 
 from multiprocessing import Pool
 from time import perf_counter
-import pickle
 import numpy as np
+import polars as pl
 
 PRIZE_MATRIX = {
     25: 1_475_218, 50: 2_190_094, 100: 2_190_094, 500: 54_807,
@@ -30,15 +30,13 @@ PRIZES: np.ndarray = np.repeat(
 WINNING_ODDS = 21_000
 WIN_CHOICES: np.ndarray = np.arange(WINNING_ODDS).astype(np.int16)
 
-BONDS_VALUE = 100_000
-
-SIM_START = 00_000
-SIM_END = SIM_START + 50_000
-
+# Set up a random generator for prize_draw function
 RNG: np.random.Generator = np.random.default_rng()
 
+BONDS_VALUE = 100_000  # Maximum holding size of interest
 
-def prize_draw(bonds_value: int) -> list[tuple[int, int]]:
+
+def prize_draw(bonds_value: int) -> tuple[np.ndarray, np.ndarray]:
     """ Simulate single prize draw  with bondsValue bonds
         returns list of winning (bond, prize) """
     # Check each bond for winning condition (value = 0)
@@ -48,28 +46,28 @@ def prize_draw(bonds_value: int) -> list[tuple[int, int]]:
     # randomly sample prizes (without replacement) each winner
     prizes: np.ndarray = RNG.choice(PRIZES, replace=False, size=len(winners))
     # return list of winning bonds and assigned prizes
-    return list(zip(winners, prizes))
+    return winners, prizes
 
 
-def annual_prizes(bonds_value: int) -> list[tuple[int, int]]:
-    """ Simulate prizes over a year """
-    winnings = []
-
-    for _ in range(12):
-        winnings.extend(prize_draw(bonds_value))
-    return winnings
-
-
-def set_data_matrix(sim: int) -> list[tuple[int, int]]:
-    """ Wrapper function for parallel processing """
-    return annual_prizes(BONDS_VALUE)
+def monte_carlo_sim(sim: int) -> pl.DataFrame:
+    """ Perform one simulation of a monte carlo experiment """
+    winners, prizes = prize_draw(BONDS_VALUE)
+    schema = ({'bond': pl.Int32, 'prize': pl.Int32})
+    df = pl.DataFrame(zip(winners, prizes), schema=schema)
+    df = df.with_columns(pl.lit(sim).alias('sim').cast(pl.Int32))
+    return df
 
 
 pool = Pool(processes=6)
 startTime = perf_counter()
-dataMatrix = pool.map(set_data_matrix, range(SIM_START, SIM_END))
+monte_carlo_results = pool.map(monte_carlo_sim, range(6_000_000))
 endTime = perf_counter()
-print(f"Completed in {endTime - startTime:0.4f} s")
-
-with open('premiumBondDataMatrix'+str(SIM_START)+'.pkl', 'wb') as file:
-    pickle.dump(dataMatrix, file)
+print(f"Completed in {endTime - startTime:0.2f} s")
+startTime = perf_counter()
+df = pl.concat(monte_carlo_results)
+endTime = perf_counter()
+print(f"Aggregated results in {endTime - startTime:0.2f} s")
+startTime = perf_counter()
+df.write_parquet('premium_bond_6M_sim_202408.parquet', compression_level=22)
+endTime = perf_counter()
+print(f"Wrote output file in {endTime - startTime:0.2f} s")
